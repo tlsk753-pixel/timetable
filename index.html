@@ -645,14 +645,15 @@ if (typeof module !== 'undefined') module.exports = Core;
 
   /* ── 저장 ── */
   function loadLocal() {
-    try { const s = JSON.parse(localStorage.getItem(LS) || 'null'); if (s && s.data && (s.data.rev || 0) > (published.rev || 0)) { data = s.data; local = true; } if (s) { ui.tok = !!s.tok; ui.aok = !!s.aok; ui.admin = !!s.admin && (!ghRepo() || (ui.aok && hasTok())); ui.sw.teacher = s.me || ''; } } catch (e) { /* 저장소를 못 쓰는 환경 */ }
+    try { const s = JSON.parse(localStorage.getItem(LS) || 'null'); if (s && s.data && (s.data.rev || 0) > ((s.base ? s.base.rev : published.rev) || 0)) { data = s.data; local = true; base = s.base || published; } if (s) { ui.tok = !!s.tok; ui.aok = !!s.aok; ui.admin = !!s.admin && (!ghRepo() || (ui.aok && hasTok())); ui.sw.teacher = s.me || ''; } } catch (e) { /* 저장소를 못 쓰는 환경 */ }
   }
-  function persist() { try { localStorage.setItem(LS, JSON.stringify({ data: local ? data : null, admin: ui.admin, me: ui.sw.teacher, tok: ui.tok, aok: ui.aok })); } catch (e) { /* 무시 */ } }
+  function persist() { try { localStorage.setItem(LS, JSON.stringify({ data: local ? data : null, base: local ? base : null, admin: ui.admin, me: ui.sw.teacher, tok: ui.tok, aok: ui.aok })); } catch (e) { /* 무시 */ } }
   function mutate(fn, msg) {
     ui.undo.push(JSON.stringify(data)); if (ui.undo.length > 20) ui.undo.shift();
-    if (!local) data = JSON.parse(JSON.stringify(data));
+    if (!local) { base = published; data = JSON.parse(JSON.stringify(data)); }
     fn(); data.rev = Date.now(); local = true; _st = null; persist(); render(); if (msg) toast(msg);
   }
+  let base = null; // 이 기기에서 고치기 시작할 때의 게시본(게시할 때 다른 사람의 수정과 합치는 기준)
   let _st = null; const state = () => (_st ||= C.buildState(data));
   const resnap = () => data.changes.forEach((c, i) => { const s = C.buildState(data, i); if (c.type === 'swap') { c.x = s.get(c.a.date, c.cls, c.a.p); c.y = s.get(c.b.date, c.cls, c.b.p); } else c.x = s.get(c.date, c.cls, c.p); });
 
@@ -897,7 +898,10 @@ if (typeof module !== 'undefined') module.exports = Core;
         <div class="row"><label class="ck"><input type="checkbox" id="keepch" checked> 등록된 교체·보강 내역 유지</label><button class="btn pri" data-act="importpaste">붙여넣은 내용 불러오기</button></div></div>
       <div class="panel"><h3>내보내기·모두에게 공유</h3><p class="small muted">이 앱에서 고친 내용은 지금 쓰는 기기에만 저장됩니다. 다른 선생님과 학생에게 보이게 하려면 data.json을 내보내 앱이 올라간 깃허브 저장소의 data.json과 바꿔 주세요.</p>
         <div class="row"><button class="btn" data-act="copyjson">data.json 복사</button>${FREE ? '<button class="btn" data-act="dljson">data.json 내려받기</button>' : ''}<button class="btn" data-act="copybase">전체 시간표 복사(시트용)</button></div>
-        ${ghRepo() ? `<h3>바로 게시</h3><p class="small muted">깃허브 토큰을 이 기기에 한 번 저장해 두면 버튼 하나로 모두에게 게시됩니다(1~2분 뒤 반영). 토큰은 이 기기에만 저장되고 깃허브 외에는 보내지 않습니다. 저장소: ${esc(ghRepo().join('/'))}</p>
+        ${ghRepo() ? `<h3>수정 비밀번호</h3><p class="small muted">비밀번호를 정해 두면 다른 선생님도 깃허브 토큰 없이 이 비밀번호만으로 시간표를 고치고 게시할 수 있습니다. 10자 이상의 추측하기 어려운 문장으로 정하세요. 비밀번호를 아는 사람은 누구나 고칠 수 있으니, 문제가 생기면 깃허브에서 토큰을 지우면 모두의 수정 권한이 끊깁니다.</p>
+        <div class="row"><span class="pill ${data.lock ? 'ok' : 'gray'}">수정 비밀번호 ${data.lock ? '사용 중' : '없음'}</span><span class="pill gray">데이터 저장소 ${esc(targetRepo().join('/'))}</span></div>
+        <div class="row"><label class="f">새 비밀번호<input type="password" id="lk-pw" autocomplete="new-password"></label><label class="f">한 번 더<input type="password" id="lk-pw2" autocomplete="new-password"></label><button class="btn" data-act="setlock" style="align-self:flex-end">비밀번호 정하기</button>${data.lock ? '<button class="btn danger" data-act="dellock" style="align-self:flex-end">없애기</button>' : ''}</div>
+        <h3>바로 게시</h3><p class="small muted">깃허브 토큰을 이 기기에 한 번 저장해 두면 버튼 하나로 모두에게 게시됩니다(1~2분 뒤 반영). 토큰은 이 기기에만 저장되고 깃허브 외에는 보내지 않습니다. 저장소: ${esc(targetRepo().join('/'))}</p>
         <div class="row"><label class="f">게시용 토큰<input type="password" id="ghtok" placeholder="${hasTok() ? '저장됨 (바꾸려면 새로 입력)' : 'github_pat_…'}" autocomplete="off"></label><button class="btn" data-act="savetok" style="align-self:flex-end">토큰 저장</button><button class="btn pri" data-act="publish" style="align-self:flex-end"${hasTok() ? '' : ' disabled'}>모두에게 게시</button></div>` : ''}</div>
       <div class="panel"><h3>접속 제한</h3><p class="small muted">교사용 코드를 정하면 학생은 일일·학급별 시간표와 학사일정만 보고, 코드를 아는 사람만 교사별 시간표·교체·통계를 봅니다. 화면을 가리는 장치일 뿐이며, 공개 주소의 데이터 파일 자체는 숨겨지지 않습니다. 관리 모드는 이 저장소의 깃허브 토큰이 있어야만 켜집니다.</p>
         <div class="row"><span class="pill ${data.auth && data.auth.teacher ? 'ok' : 'gray'}">교사용 코드 ${data.auth && data.auth.teacher ? '사용 중' : '없음'}</span></div>
@@ -906,27 +910,52 @@ if (typeof module !== 'undefined') module.exports = Core;
         ${Object.keys(data.cal || {}).length ? `<ul class="plain">${Object.keys(data.cal).sort().map(d => `<li><span>${C.fmtDate(d)} <b>${esc(data.cal[d].label || '')}</b> <span class="pill gray">${data.cal[d].periods === 0 ? '휴업일' : data.cal[d].periods != null ? data.cal[d].periods + '교시까지' : '정상 수업'}</span></span><button class="btn sm danger" data-act="delday" data-d="${d}">삭제</button></li>`).join('')}</ul>` : '<p class="muted">등록된 학사일정이 없습니다.</p>'}</div></div>` : ''}`;
   }
   const ghRepo = () => { const m = location.hostname.match(/^(.+)\.github\.io$/), repo = location.pathname.split('/')[1]; return FREE && m && repo ? [m[1], repo] : null; };
+  // 시간표 데이터 저장소: '<앱 저장소>-data'가 있으면 데이터는 거기서 읽고 쓴다. 수정용 토큰이 앱 코드에는 닿지 않게 하기 위함
+  let dataUrl = 'data.json', dataRepoName = null;
+  const targetRepo = () => { const g = ghRepo(); return g ? [g[0], dataRepoName || g[1]] : null; };
+  async function detectDataRepo() {
+    const g = ghRepo(); if (!g) return null;
+    try { const u = `https://${g[0]}.github.io/${g[1]}-data/data.json`, r = await fetch(u, { cache: 'no-store' }); if (r.ok) { const j = await r.json(); if (j && j.base) { dataUrl = u; dataRepoName = g[1] + '-data'; return j; } } } catch (e) { /* 분리 저장소 없음 */ }
+    return null;
+  }
+  // 수정 비밀번호: 토큰을 비밀번호로 잠가(PBKDF2 → AES-GCM) 데이터에 함께 싣는다
+  const b64 = u => { let s = ''; u.forEach(b => (s += String.fromCharCode(b))); return btoa(s); }, unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  async function lockKey(pw, salt, iter) { const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']); return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']); }
+  async function makeLock(pw, tk) { const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), iter = 600000; return { v: 1, iter, salt: b64(salt), iv: b64(iv), ct: b64(new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await lockKey(pw, salt, iter), new TextEncoder().encode(tk)))) }; }
+  async function openLock(pw) { const L = data.lock; try { return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(L.iv) }, await lockKey(pw, unb64(L.salt), L.iter), unb64(L.ct))); } catch (e) { return null; } }
+  /** 내 수정(mine)을 그 사이 다른 사람이 게시한 내용(theirs) 위에 얹는다. base는 내가 고치기 시작한 게시본 */
+  function mergeData(b, mine, theirs) {
+    const J = JSON.stringify, out = JSON.parse(J(theirs));
+    const bIds = new Set((b.changes || []).map(c => c.id)), mIds = new Set(mine.changes.map(c => c.id)), tIds = new Set(out.changes.map(c => c.id));
+    out.changes = out.changes.filter(c => !(bIds.has(c.id) && !mIds.has(c.id))).concat(mine.changes.filter(c => !bIds.has(c.id) && !tIds.has(c.id))).sort((x, y) => (x.id || 0) - (y.id || 0));
+    for (const k of ['memos', 'cal']) { const bb = b[k] || {}, mm = mine[k] || {}; out[k] = { ...(out[k] || {}) }; for (const d of new Set([...Object.keys(bb), ...Object.keys(mm)])) if (J(bb[d]) !== J(mm[d])) { if (d in mm) out[k][d] = mm[d]; else delete out[k][d]; } }
+    for (const k of new Set([...Object.keys(mine), ...Object.keys(b)])) { if (['changes', 'memos', 'cal', 'rev'].includes(k)) continue; if (J(mine[k]) !== J(b[k])) { if (k in mine) out[k] = mine[k]; else delete out[k]; } }
+    return out;
+  }
   const hasTok = () => { try { return !!localStorage.getItem(TOKEN); } catch (e) { return false; } };
   async function publish() {
-    const gr = ghRepo(); let tk = ''; try { tk = localStorage.getItem(TOKEN) || ''; } catch (e) { /* 무시 */ }
+    const gr = targetRepo(); let tk = ''; try { tk = localStorage.getItem(TOKEN) || ''; } catch (e) { /* 무시 */ }
     if (!gr || !tk) return toast('먼저 게시용 토큰을 저장하세요.');
     const api = `https://api.github.com/repos/${gr[0]}/${gr[1]}/contents/data.json`, h = { Authorization: 'Bearer ' + tk, Accept: 'application/vnd.github+json' };
     try {
-      toast('게시하는 중…'); const cur = await fetch(api, { headers: h }); const sha = cur.ok ? (await cur.json()).sha : undefined;
+      toast('게시하는 중…'); const cur = await fetch(api, { headers: h, cache: 'no-store' }); let sha, remote = null, merged = false;
       if (cur.status === 401 || cur.status === 403) throw new Error('토큰이 맞지 않거나 이 저장소에 쓸 권한이 없습니다.');
-      if (!local) data = JSON.parse(JSON.stringify(data));
+      if (cur.ok) { const cj = await cur.json(); sha = cj.sha; try { remote = JSON.parse(new TextDecoder().decode(unb64((cj.content || '').replace(/\s/g, '')))); } catch (e) { /* 내용을 못 읽으면 합치지 않고 덮어쓴다 */ } }
+      const b0 = local && base ? base : published;
+      if (remote && remote.base && (remote.rev || 0) !== (b0.rev || 0)) { data = mergeData(b0, data, remote); resnap(); _st = null; merged = true; }
+      else if (!local) data = JSON.parse(JSON.stringify(data));
       data.rev = Date.now(); let bin = ''; new TextEncoder().encode(JSON.stringify(data)).forEach(b => (bin += String.fromCharCode(b)));
       const r = await fetch(api, { method: 'PUT', headers: h, body: JSON.stringify({ message: '시간표 업데이트', content: btoa(bin), sha }) });
       if (!r.ok) throw new Error([401, 403, 404].includes(r.status) ? '토큰이 맞지 않거나 이 저장소에 쓸 권한이 없습니다.' : `게시하지 못했습니다(${r.status}). 잠시 뒤 다시 시도하세요.`);
-      local = true; persist(); render(); toast('게시했습니다. 1~2분 뒤 모두에게 보입니다.');
+      local = true; base = JSON.parse(JSON.stringify(data)); persist(); render(); toast(merged ? '다른 선생님이 올린 내용과 합쳐서 게시했습니다. 1~2분 뒤 모두에게 보입니다.' : '게시했습니다. 1~2분 뒤 모두에게 보입니다.');
     } catch (e) { toast(e.message || '게시하지 못했습니다.'); }
   }
   /** 게시된 시간표가 바뀌었는지 확인해 화면을 새로 고친다 */
   async function refresh() {
     try {
-      const r = await fetch('data.json', { cache: 'no-store' }); if (!r.ok) return; const j = await r.json();
+      const r = await fetch(dataUrl, { cache: 'no-store' }); if (!r.ok) return; const j = await r.json();
       if (!j || !j.base || (j.rev || 0) <= (published.rev || 0)) return;
-      if (local && (data.rev || 0) > (j.rev || 0)) { published = j; return; }
+      if (local && (data.rev || 0) > ((base && base.rev) || 0)) { published = j; return; } // 아직 게시하지 않은 내 수정이 있으면 건드리지 않는다
       if ($('#modal').style.display === 'flex' || ui.b.running || (document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName))) return;
       const seen = new Set(data.changes.map(c => c.id)), me = ui.sw.teacher;
       const fresh = j.changes.filter(c => !seen.has(c.id) && me && [...C.teachersOf(c.x), ...C.teachersOf(c.y), c.t].includes(me) && C.changeDates(c).some(d => d >= today()));
@@ -978,7 +1007,7 @@ if (typeof module !== 'undefined') module.exports = Core;
       ${lv >= 1 && ui.sw.teacher && FREE && 'Notification' in window && Notification.permission === 'default' ? '<button class="btn sm noprint" data-act="notify">변동 알림 켜기</button>' : ''}
       ${ui.admin ? '<button class="btn sm noprint on" data-act="admin" aria-pressed="true">관리 모드 끄기</button>' : ''}</div>
       <nav class="tabs" aria-label="메뉴">${tabs.map(([k, l, a]) => `<a href="#${k}"${k === v ? ' aria-current="page"' : ''}${a === 2 ? ' class="adm"' : ''}>${l}</a>`).join('')}</nav>`;
-    $('#main').innerHTML = ({ daily: vDaily, class: vClass, teacher: vTeacher, all: vAll, hours: vHours, stats: vStats, rooms: vRooms, exam: vExam, meal: vMeal, swap: vSwap, build: vBuild, data: vData }[v] || vDaily)() + (ui.admin ? '' : '<footer class="foot noprint"><button class="linkbtn" data-act="admin">관리자</button></footer>');
+    $('#main').innerHTML = ({ daily: vDaily, class: vClass, teacher: vTeacher, all: vAll, hours: vHours, stats: vStats, rooms: vRooms, exam: vExam, meal: vMeal, swap: vSwap, build: vBuild, data: vData }[v] || vDaily)() + (ui.admin ? '' : '<footer class="foot noprint"><button class="linkbtn" data-act="admin">시간표 수정</button></footer>');
     // 화면에 필요한 기간의 학사일정·급식을 나이스에서 채운다
     const mon = C.mondayOf(ui.date), fri = C.addDays(mon, 4);
     if (v === 'swap') { const m = C.mondayOf(ui.sw.date || ui.date); need('c', C.addDays(m, -7 * ui.sw.range), C.addDays(m, 4 + 7 * ui.sw.range)); }
@@ -990,9 +1019,9 @@ if (typeof module !== 'undefined') module.exports = Core;
   const go = v => { if (location.hash !== '#' + v) location.hash = v; else { ui.view = v; render(); } };
   function route() { const h = location.hash.slice(1), x = VIEWS.find(x => x[0] === h); ui.view = x && x[2] <= level() ? h : 'daily'; render(); window.scrollTo(0, 0); }
   /** 관리 모드는 이 저장소에 쓸 권한이 있는 깃허브 토큰으로만 켠다(깃허브가 직접 확인) */
-  const askTok = () => modal(`<h3>관리자 확인</h3><p class="small muted">이 시간표 저장소(${esc(ghRepo().join('/'))})를 고칠 권한이 있는 깃허브 토큰을 입력하세요. 깃허브에 직접 확인하며, 토큰은 이 기기에만 저장됩니다.</p><input type="password" id="pw" autocomplete="off" aria-label="깃허브 토큰" placeholder="github_pat_…"><div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">취소</button><button class="btn pri" data-act="tokgo">확인</button></div>`);
+  const askTok = () => modal(`<h3>시간표 수정</h3><p class="small muted">${data.lock ? '수정 비밀번호를 입력하세요. 한 번 입력하면 이 기기에 기억됩니다.' : '수정 비밀번호가 아직 없습니다. 처음 설정하는 관리자는 깃허브 토큰을 입력하세요.'}</p><input type="password" id="pw" autocomplete="off" aria-label="수정 비밀번호" placeholder="${data.lock ? '수정 비밀번호' : 'github_pat_…'}"><div class="row" style="justify-content:flex-end"><button class="btn" data-act="close">취소</button><button class="btn pri" data-act="tokgo">확인</button></div>`);
   async function checkTok(tk) {
-    try { const r = await fetch(`https://api.github.com/repos/${ghRepo().join('/')}`, { headers: { Authorization: `Bearer ${tk}`, Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+    try { const r = await fetch(`https://api.github.com/repos/${targetRepo().join('/')}`, { headers: { Authorization: `Bearer ${tk}`, Accept: 'application/vnd.github+json' }, cache: 'no-store' });
       if (r.status === 401) return '토큰이 올바르지 않거나 만료되었습니다.'; if (!r.ok) return `깃허브에서 확인하지 못했습니다 (${r.status}).`;
       const j = await r.json(); return j.permissions && j.permissions.push ? true : '이 토큰에는 시간표 저장소를 고칠 권한이 없습니다.';
     } catch (e) { return '깃허브에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.'; }
@@ -1017,10 +1046,16 @@ if (typeof module !== 'undefined') module.exports = Core;
     saveday: () => { const label = $('#dlabel').value.trim(), k = $('#dkind').value; mutate(() => { data.cal = { ...(data.cal || {}) }; if (!label && k === 'n') delete data.cal[ui.date]; else data.cal[ui.date] = k === 'n' ? { label } : { label: label || (k === '0' ? '휴업일' : '단축 수업'), periods: +k }; }, '학사일정을 저장했습니다.'); },
     delday: d => mutate(() => { delete data.cal[d.d]; }, '삭제했습니다.'),
     copystats: () => copy(statsTsv(), '통계'),
-    tokgo: async () => { const v = $('#pw').value.trim(); if (!v) return toast('토큰을 입력하세요.'); toast('확인하는 중…');
-      const r = await checkTok(v); if (r !== true) return toast(r);
+    tokgo: async () => { let v = $('#pw').value.trim(); if (!v) return toast('비밀번호를 입력하세요.'); toast('확인하는 중…');
+      const byPw = !/^(github_pat_|ghp_)/.test(v);
+      if (byPw) { if (!data.lock) return toast('수정 비밀번호가 아직 설정되지 않았습니다.'); v = await openLock(v); if (!v) return toast('비밀번호가 맞지 않습니다.'); }
+      const r = await checkTok(v); if (r !== true) return toast(byPw ? '수정 권한이 만료되었습니다. 시간표 담당 선생님께 알려 주세요.' : r);
       try { localStorage.setItem(TOKEN, v); } catch (e) { return toast('이 브라우저에서는 저장할 수 없습니다.'); }
       closeModal(); ui.aok = true; ui.admin = true; persist(); render(); toast('관리 모드를 켰습니다.'); },
+    setlock: async () => { const a = $('#lk-pw').value, b = $('#lk-pw2').value; let tk = ''; try { tk = localStorage.getItem(TOKEN) || ''; } catch (e) { /* 무시 */ }
+      if (!tk) return toast('먼저 깃허브 토큰으로 관리 모드를 켜세요.'); if (a.length < 10) return toast('비밀번호는 10자 이상으로 정해 주세요.'); if (a !== b) return toast('두 칸의 비밀번호가 다릅니다.');
+      toast('잠그는 중…'); const lock = await makeLock(a, tk); mutate(() => { data.lock = lock; }, "수정 비밀번호를 정했습니다. '모두에게 게시'를 눌러야 다른 선생님이 쓸 수 있습니다."); },
+    dellock: () => confirmBox('수정 비밀번호를 없앨까요? 게시한 뒤에는 토큰이 있는 사람만 수정할 수 있습니다.', () => mutate(() => { delete data.lock; }, '수정 비밀번호를 없앴습니다. 게시하면 적용됩니다.'), '없애기'),
     savetok: () => { const v = $('#ghtok').value.trim(); if (!v) return toast('토큰을 입력하세요.'); try { localStorage.setItem(TOKEN, v); render(); toast('토큰을 이 기기에 저장했습니다.'); } catch (e) { toast('이 브라우저에서는 저장할 수 없습니다.'); } },
     publish,
     admin: () => { if (!ui.admin && ghRepo() && !(ui.aok && hasTok())) return askTok(); ui.admin = !ui.admin; ui.pick = null; persist(); if (!ui.admin && ui.view === 'build') go('daily'); else render(); toast(ui.admin ? '관리 모드를 켰습니다. 시간표를 고칠 수 있습니다.' : '관리 모드를 껐습니다.'); },
@@ -1083,7 +1118,8 @@ if (typeof module !== 'undefined') module.exports = Core;
 
   (async () => {
     if (FREE && location.protocol.startsWith('http')) {
-      try { const r = await fetch('data.json', { cache: 'no-store' }); if (r.ok) { const j = await r.json(); if (j && j.base) data = published = j; } } catch (e) { /* 내장 시간표 사용 */ }
+      const dj = await detectDataRepo();
+      if (dj) data = published = dj; else try { const r = await fetch('data.json', { cache: 'no-store' }); if (r.ok) { const j = await r.json(); if (j && j.base) data = published = j; } } catch (e) { /* 내장 시간표 사용 */ }
       const l = document.createElement('link'); l.rel = 'manifest'; l.href = 'manifest.webmanifest'; document.head.appendChild(l);
       if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
     }
