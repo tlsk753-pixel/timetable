@@ -547,13 +547,13 @@ if (typeof module !== 'undefined') module.exports = Core;
   const VIEWS = [['daily', '일일 시간표'], ['class', '학급별'], ['teacher', '교사별'], ['all', '전체 시간표'], ['hours', '교사 시수'], ['swap', '교체·보강'], ['build', '자동 편성', 1], ['data', '데이터']];
   let published = JSON.parse($('#seed').textContent), data = published, local = false;
   const today = () => { let s = C.toYmd(new Date()); while (C.dayIdx(s) > 4) s = C.addDays(s, 1); return s; };
-  const ui = { view: 'daily', date: today(), cls: null, teacher: null, find: '', admin: false, pick: null, undo: [], sw: { mode: 'swap', range: 0, sel: null, p: null }, b: { mode: 'keep', cls: null, teacher: null, running: false, res: null, show: false } };
+  const ui = { view: 'daily', date: today(), cls: null, teacher: null, find: '', admin: false, pick: null, undo: [], sw: { mode: 'swap', range: 0, sel: null, p: null, by: 'teacher', teacher: '' }, b: { mode: 'keep', cls: null, teacher: null, running: false, res: null, show: false } };
 
   /* ── 저장 ── */
   function loadLocal() {
-    try { const s = JSON.parse(localStorage.getItem(LS) || 'null'); if (s && s.data && (s.data.rev || 0) > (published.rev || 0)) { data = s.data; local = true; } if (s) ui.admin = !!s.admin; } catch (e) { /* 저장소를 못 쓰는 환경 */ }
+    try { const s = JSON.parse(localStorage.getItem(LS) || 'null'); if (s && s.data && (s.data.rev || 0) > (published.rev || 0)) { data = s.data; local = true; } if (s) { ui.admin = !!s.admin; ui.sw.teacher = s.me || ''; } } catch (e) { /* 저장소를 못 쓰는 환경 */ }
   }
-  function persist() { try { localStorage.setItem(LS, JSON.stringify({ data: local ? data : null, admin: ui.admin })); } catch (e) { /* 무시 */ } }
+  function persist() { try { localStorage.setItem(LS, JSON.stringify({ data: local ? data : null, admin: ui.admin, me: ui.sw.teacher })); } catch (e) { /* 무시 */ } }
   function mutate(fn, msg) {
     ui.undo.push(JSON.stringify(data)); if (ui.undo.length > 20) ui.undo.shift();
     if (!local) data = JSON.parse(JSON.stringify(data));
@@ -657,7 +657,7 @@ if (typeof module !== 'undefined') module.exports = Core;
   function vSwap() {
     const st = state(), sw = ui.sw; sw.date ||= ui.date; sw.cls ||= ui.cls || data.classes[0];
     const n = st.nPeriods(sw.date); if (sw.p != null && sw.p >= n) sw.p = null;
-    let body = '<p class="muted">바꿀 수업의 날짜·학급·교시를 고르세요.</p>';
+    let body = `<p class="muted">${sw.by === 'teacher' ? '위 주간 시간표에서 바꿀 수업을 누르세요.' : '바꿀 수업의 날짜·학급·교시를 고르세요.'}</p>`;
     if (sw.p != null) {
       const X = st.get(sw.date, sw.cls, sw.p);
       const tabs = [['swap', '수업 교체'], ['cover', '보강'], ['edit', '직접 수정']].map(([k, l]) => `<button class="btn ${sw.mode === k ? 'on' : ''}" data-act="swmode" data-m="${k}">${l}</button>`).join('');
@@ -682,11 +682,29 @@ if (typeof module !== 'undefined') module.exports = Core;
     const pbtn = []; for (let p = 0; p < n; p++) pbtn.push(`<button class="btn ${sw.p === p ? 'on' : ''}" data-act="swp" data-p="${p}">${p + 1}교시<span>${esc(C.lessonText(st.get(sw.date, sw.cls, p)))}</span></button>`);
     const all = data.changes.map((c, i) => [c, i]).reverse();
     return `<h2>교체·보강</h2>
-      <div class="panel"><div class="row"><label class="f">날짜<input type="date" id="swdate" data-ch="swdate" value="${sw.date}"></label><label class="f">학급<select id="swcls" data-ch="swcls">${data.classes.map(c => opt(c, c + '반', sw.cls)).join('')}</select></label></div>
-      <div class="plist">${pbtn.join('') || '<span class="muted">수업이 없는 날입니다.</span>'}</div></div>
+      <div class="panel"><div class="row"><button class="btn ${sw.by === 'teacher' ? 'on' : ''}" data-act="swby" data-b="teacher">교사 이름으로 찾기</button><button class="btn ${sw.by === 'cls' ? 'on' : ''}" data-act="swby" data-b="cls">학급으로 찾기</button></div>
+      ${sw.by === 'teacher' ? swTeacherPick(st) : `<div class="row"><label class="f">날짜<input type="date" id="swdate" data-ch="swdate" value="${sw.date}"></label><label class="f">학급<select id="swcls" data-ch="swcls">${data.classes.map(c => opt(c, c + '반', sw.cls)).join('')}</select></label></div>
+      <div class="plist">${pbtn.join('') || '<span class="muted">수업이 없는 날입니다.</span>'}</div>`}</div>
       <div class="panel">${body}</div>
       <div class="panel"><div class="row spread"><h3>변동 내역 <span class="small muted num">${all.length}건</span></h3>${all.length ? '<button class="btn sm" data-act="copyall">전체 복사</button>' : ''}</div>
       ${all.length ? `<ul class="plain">${all.map(([c, i]) => `<li><span><span class="pill ${c.type === 'swap' ? 'swap' : 'cover'}">${c.type === 'swap' ? '교체' : c.type === 'cover' ? '보강' : '변경'}</span> ${esc(C.describeChange(c))}</span>${ui.admin ? `<button class="btn sm danger" data-act="delchange" data-i="${i}">삭제</button>` : ''}</li>`).join('')}</ul>` : '<p class="muted">등록된 교체·보강이 없습니다.</p>'}</div>`;
+  }
+  /** 교사 이름 → 그 주 시간표. 칸마다 문제없이 바꿀 수 있는 시간의 수를 보여 준다 */
+  function swTeacherPick(st) {
+    const sw = ui.sw, names = C.allTeachers(data), t = names.includes(sw.teacher) ? sw.teacher : '';
+    const m = C.mondayOf(sw.date), ds = [0, 1, 2, 3, 4].map(i => C.addDays(m, i));
+    let grid = '<p class="muted">이름을 입력하면 그 선생님의 주간 시간표가 나옵니다.</p>';
+    if (t) {
+      const from = C.addDays(m, -7 * sw.range), to = C.addDays(m, 4 + 7 * sw.range); let rows = '', n = 0;
+      for (let p = 0; p < Math.max(...data.periods); p++) rows += `<tr><td class="side">${p + 1}</td>${ds.map(d => {
+        const cs = p < st.nPeriods(d) ? st.classesOf(t, d, p) : []; if (!cs.length) return '<td class="c empty wide"></td>';
+        n++; const cls = cs[0], l = st.get(d, cls, p), ok = C.swapCandidates(data, st, cls, d, p, from, to).filter(c => c.ok && !c.warns.length).length;
+        return `<td class="c wide${sw.date === d && sw.cls === cls && sw.p === p ? ' pick' : ''}${l.mark ? ' m-' + l.mark : ''}" style="--h:${hue(l.s)}" data-act="swpick" data-date="${d}" data-cls="${cls}" data-p="${p}">${l.mark ? `<i class="mk">${l.mark}</i>` : ''}<b>${cs.join(', ')} ${esc(l.s)}</b><span>${ok ? `교체 가능 ${ok}곳` : '교체 어려움'}</span></td>`;
+      }).join('')}</tr>`;
+      grid = `<div class="scroll"><table class="tt"><thead>${weekHead(ds)}</thead><tbody>${rows}</tbody></table></div><p class="small muted">이번 주 수업 ${n}시간 · 바꾸고 싶은 수업을 누르면 아래에 바꿀 수 있는 시간이 나옵니다. 칸의 숫자는 문제없이 바꿀 수 있는 시간의 수입니다(찾는 범위 기준).</p>`;
+    }
+    return `<div class="row"><label class="f">교사 이름<input type="text" id="swt" data-ch="swt" list="tlist" value="${esc(sw.teacher || '')}" placeholder="이름 입력" autocomplete="off"></label><datalist id="tlist">${names.map(x => `<option value="${esc(x)}">${esc(data.depts[x] || '')}</option>`).join('')}</datalist>
+      <div class="row" style="align-self:flex-end"><button class="btn" data-act="swweek" data-n="-7">◀ 이전 주</button><span class="num small">${C.fmtDate(ds[0])} ~ ${C.fmtDate(ds[4])}</span><button class="btn" data-act="swweek" data-n="7">다음 주 ▶</button></div></div>${grid}`;
   }
   const mkSwap = (c, X) => { const sw = ui.sw, a = { date: sw.date, p: sw.p }, b = { date: c.date, p: c.p }; const fwd = a.date < b.date || (a.date === b.date && a.p < b.p); return { id: Date.now(), type: 'swap', cls: sw.cls, a: fwd ? a : b, b: fwd ? b : a, x: fwd ? X : c.Y, y: fwd ? c.Y : X }; };
 
@@ -775,7 +793,10 @@ if (typeof module !== 'undefined') module.exports = Core;
     admin: () => { ui.admin = !ui.admin; ui.pick = null; persist(); if (!ui.admin && ui.view === 'build') go('daily'); else render(); toast(ui.admin ? '관리 모드를 켰습니다. 시간표를 고칠 수 있습니다.' : '관리 모드를 껐습니다.'); },
     shift: d => { let s = C.addDays(ui.date, +d.n); if (Math.abs(+d.n) === 1) while (C.dayIdx(s) > 4) s = C.addDays(s, +d.n); ui.date = s; render(); },
     today: () => { ui.date = today(); render(); },
-    lesson: d => { ui.sw = { ...ui.sw, date: d.date, cls: d.cls, p: +d.p, sel: null }; go('swap'); },
+    lesson: d => { const l = state().get(d.date, d.cls, +d.p), t = C.teachersOf(l); ui.sw = { ...ui.sw, date: d.date, cls: d.cls, p: +d.p, sel: null }; if (t.length && !t.includes(ui.sw.teacher)) ui.sw.by = 'cls'; go('swap'); },
+    swby: d => { ui.sw.by = d.b; ui.sw.p = null; ui.sw.sel = null; render(); },
+    swpick: d => { ui.sw = { ...ui.sw, date: d.date, cls: d.cls, p: +d.p, sel: null }; render(); },
+    swweek: d => { ui.sw.date = C.addDays(ui.sw.date || ui.date, +d.n); ui.sw.p = null; ui.sw.sel = null; render(); },
     goteacher: d => { ui.teacher = d.t; },
     print: () => window.print(),
     copyday: () => copy(dayText(ui.date), '변동사항'), copydaytsv: () => copy(dayTsv(ui.date), '일일 시간표'), copybase: () => copy(baseTsv(), '전체 시간표'),
@@ -808,6 +829,8 @@ if (typeof module !== 'undefined') module.exports = Core;
   const chg = {
     find: v => { ui.find = v; render(); }, date: v => { if (v) { ui.date = v; render(); } },
     cls: v => { ui.cls = v; render(); }, teacher: v => { ui.teacher = v; render(); },
+    swt: v => { const q = v.trim(), names = C.allTeachers(data), hit = names.includes(q) ? [q] : names.filter(x => q && x.includes(q));
+      if (hit.length === 1) { ui.sw.teacher = hit[0]; ui.sw.p = null; ui.sw.sel = null; persist(); render(); } else toast(hit.length ? `여러 명이 검색됩니다: ${hit.join(', ')}` : '그 이름의 선생님을 찾지 못했습니다.'); },
     swdate: v => { if (v) { ui.sw.date = v; ui.sw.p = null; ui.sw.sel = null; render(); } }, swcls: v => { ui.sw.cls = v; ui.sw.p = null; ui.sw.sel = null; render(); }, swrange: v => { ui.sw.range = +v; render(); },
     memo: v => mutate(() => { if (v.trim()) data.memos[ui.date] = v.trim(); else delete data.memos[ui.date]; }, '메모를 저장했습니다.'),
     bmode: v => { ui.b.mode = v; }, offt: v => { ui.b.teacher = v; render(); }, reqcls: v => { ui.b.cls = v; render(); },
