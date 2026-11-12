@@ -151,6 +151,8 @@ table.list td.r, table.list th.r { text-align: right; font-variant-numeric: tabu
 .mealgrid .panel.nowday { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 ul.dishes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 15px; }
 
+.foot { align-items: center; gap: 12px; } .ver { color: var(--muted); font-size: 11px; }
+
 </style>
 </head>
 <body>
@@ -608,6 +610,7 @@ if (typeof module !== 'undefined') module.exports = Core;
   // [주소, 이름, 필요한 권한] 0 누구나 · 1 교사 · 2 관리자
   const VIEWS = [['daily', '일일 시간표', 0], ['class', '학급별', 0], ['meal', '급식', 0], ['exam', '학사일정·고사', 0], ['teacher', '교사별', 1], ['all', '전체 시간표', 1], ['hours', '교사 시수', 1], ['stats', '통계', 1], ['rooms', '특별실', 1], ['swap', '교체·보강', 1], ['build', '자동 편성', 2], ['data', '데이터', 1]];
   const TOKEN = 'school-timetable-gh-token';
+  const VERSION = '11.12-2'; // 화면 맨 아래에 표시. 새 파일이 반영됐는지 확인하는 용도
   /* ── 나이스(교육정보 개방 포털): 학사일정·급식 ── */
   const NEIS_OK = FREE && location.protocol.startsWith('http'), NKEY = LS + '-neis', NEIS = 'https://open.neis.go.kr/hub/';
   const school = () => data.school || { office: 'Q10', code: '8642003', name: '해남중학교' };
@@ -652,6 +655,18 @@ if (typeof module !== 'undefined') module.exports = Core;
     ui.undo.push(JSON.stringify(data)); if (ui.undo.length > 20) ui.undo.shift();
     if (!local) { base = published; data = JSON.parse(JSON.stringify(data)); }
     fn(); data.rev = Date.now(); local = true; _st = null; persist(); render(); if (msg) toast(msg);
+    autoPublish();
+  }
+  /* 수정 권한이 있는 기기에서는 고칠 때마다 잠시 뒤 자동으로 모두에게 게시한다 */
+  let pubTimer = null, pubBusy = false, pubAgain = false, pubState = '';
+  const canPub = () => !!(ghRepo() && hasTok() && ui.admin);
+  const pubLabel = () => ({ pending: '저장 대기 중…', saving: '모두에게 반영하는 중…', done: '모두에게 반영됨', fail: '반영 실패' }[pubState] || '');
+  const paintPub = () => { const el = $('#pubstat'); if (el) el.innerHTML = pubState ? `<span class="pill ${pubState === 'fail' ? 'bad' : pubState === 'done' ? 'ok' : 'gray'}">${pubLabel()}</span>${pubState === 'fail' ? ' <button class="btn sm" data-act="publish">다시 시도</button>' : ''}` : ''; };
+  function autoPublish() { if (!canPub()) return; pubState = 'pending'; paintPub(); clearTimeout(pubTimer); pubTimer = setTimeout(runPublish, 1500); }
+  async function runPublish() {
+    if (pubBusy) { pubAgain = true; return; }
+    pubBusy = true; pubState = 'saving'; paintPub(); const ok = await publish(true); pubBusy = false; pubState = ok ? 'done' : 'fail'; paintPub();
+    if (pubAgain) { pubAgain = false; autoPublish(); }
   }
   let base = null; // 이 기기에서 고치기 시작할 때의 게시본(게시할 때 다른 사람의 수정과 합치는 기준)
   let _st = null; const state = () => (_st ||= C.buildState(data));
@@ -891,7 +906,7 @@ if (typeof module !== 'undefined') module.exports = Core;
       <div class="panel"><div class="row"><span class="pill gray">학급 ${data.classes.length}</span><span class="pill gray">교사 ${C.allTeachers(data).length}</span><span class="pill gray">주당 수업 ${nL}</span><span class="pill gray">교체·보강 ${data.changes.length}</span>${local ? '<span class="pill swap">이 기기에서 수정한 내용</span>' : '<span class="pill ok">게시된 시간표</span>'}</div>
       <p class="small muted">${data.source ? `불러온 시트: ${esc(data.source)}` : ''}</p>
       ${ui.admin ? `<label class="f">학교·시간표 이름<input type="text" id="sname" data-ch="sname" value="${esc(data.name || '')}" placeholder="예: ○○중학교 2학기"></label>
-      <div class="row">${ui.undo.length ? '<button class="btn" data-act="undo">방금 작업 되돌리기</button>' : ''}${local ? '<button class="btn danger" data-act="revert">게시된 시간표로 되돌리기</button>' : ''}</div>` : '<p class="muted">시간표를 고치거나 새로 불러오려면 위쪽의 관리 모드를 켜세요.</p>'}</div>
+      <div class="row">${ui.undo.length ? '<button class="btn" data-act="undo">방금 작업 되돌리기</button>' : ''}${local ? '<button class="btn danger" data-act="revert">게시된 시간표로 되돌리기</button>' : ''}</div>` : '<p class="muted">시간표를 고치거나 새로 불러오려면 화면 맨 아래의 “시간표 수정”을 눌러 주세요.</p>'}</div>
       ${ui.admin ? `<div class="grid2"><div class="panel"><h3>시간표 불러오기</h3><p class="small muted">요일·교시 열과 학급(1-1, 1-2 …) 머리글이 있고, 칸마다 과목과 교사가 두 줄로 적힌 주간 시간표를 읽습니다.</p>
         <label class="f">엑셀 파일(.xlsx)<input type="file" id="xfile" accept=".xlsx" data-ch="xfile"></label>
         <label class="f">또는 구글 시트에서 표를 복사해 붙여넣기 (백업한 data.json 내용도 가능)<textarea id="paste" placeholder="전체 시간표 범위를 복사(Ctrl+C)해서 여기에 붙여넣으세요."></textarea></label>
@@ -933,12 +948,13 @@ if (typeof module !== 'undefined') module.exports = Core;
     return out;
   }
   const hasTok = () => { try { return !!localStorage.getItem(TOKEN); } catch (e) { return false; } };
-  async function publish() {
+  async function publish(quiet) {
     const gr = targetRepo(); let tk = ''; try { tk = localStorage.getItem(TOKEN) || ''; } catch (e) { /* 무시 */ }
-    if (!gr || !tk) return toast('먼저 게시용 토큰을 저장하세요.');
+    if (!gr || !tk) { toast('먼저 게시용 토큰을 저장하세요.'); return false; }
+    const busyUi = () => $('#modal').style.display === 'flex' || ui.b.running || (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
     const api = `https://api.github.com/repos/${gr[0]}/${gr[1]}/contents/data.json`, h = { Authorization: 'Bearer ' + tk, Accept: 'application/vnd.github+json' };
     try {
-      toast('게시하는 중…'); const cur = await fetch(api, { headers: h, cache: 'no-store' }); let sha, remote = null, merged = false;
+      if (!quiet) toast('게시하는 중…'); const cur = await fetch(api, { headers: h, cache: 'no-store' }); let sha, remote = null, merged = false;
       if (cur.status === 401 || cur.status === 403) throw new Error('토큰이 맞지 않거나 이 저장소에 쓸 권한이 없습니다.');
       if (cur.ok) { const cj = await cur.json(); sha = cj.sha; try { remote = JSON.parse(new TextDecoder().decode(unb64((cj.content || '').replace(/\s/g, '')))); } catch (e) { /* 내용을 못 읽으면 합치지 않고 덮어쓴다 */ } }
       const b0 = local && base ? base : published;
@@ -947,13 +963,16 @@ if (typeof module !== 'undefined') module.exports = Core;
       data.rev = Date.now(); let bin = ''; new TextEncoder().encode(JSON.stringify(data)).forEach(b => (bin += String.fromCharCode(b)));
       const r = await fetch(api, { method: 'PUT', headers: h, body: JSON.stringify({ message: '시간표 업데이트', content: btoa(bin), sha }) });
       if (!r.ok) throw new Error([401, 403, 404].includes(r.status) ? '토큰이 맞지 않거나 이 저장소에 쓸 권한이 없습니다.' : `게시하지 못했습니다(${r.status}). 잠시 뒤 다시 시도하세요.`);
-      local = true; base = JSON.parse(JSON.stringify(data)); persist(); render(); toast(merged ? '다른 선생님이 올린 내용과 합쳐서 게시했습니다. 1~2분 뒤 모두에게 보입니다.' : '게시했습니다. 1~2분 뒤 모두에게 보입니다.');
-    } catch (e) { toast(e.message || '게시하지 못했습니다.'); }
+      local = true; base = JSON.parse(JSON.stringify(data)); persist(); if (!quiet || merged || !busyUi()) render(); toast(merged ? '다른 선생님이 올린 내용과 합쳐서 게시했습니다. 1~2분 뒤 모두에게 보입니다.' : '게시했습니다. 1~2분 뒤 모두에게 보입니다.');
+      return true;
+    } catch (e) { toast(e.message || '게시하지 못했습니다.'); return false; }
   }
   /** 게시된 시간표가 바뀌었는지 확인해 화면을 새로 고친다 */
   async function refresh() {
     try {
-      const r = await fetch(dataUrl, { cache: 'no-store' }); if (!r.ok) return; const j = await r.json();
+      let r = null; const gr = targetRepo();
+      if (gr && hasTok() && !pubBusy) { try { r = await fetch(`https://api.github.com/repos/${gr[0]}/${gr[1]}/contents/data.json`, { headers: { Authorization: 'Bearer ' + localStorage.getItem(TOKEN), Accept: 'application/vnd.github.raw+json' }, cache: 'no-store' }); if (!r.ok) r = null; } catch (e) { r = null; } }
+      if (!r) r = await fetch(dataUrl, { cache: 'no-store' }); if (!r.ok) return; const j = await r.json();
       if (!j || !j.base || (j.rev || 0) <= (published.rev || 0)) return;
       if (local && (data.rev || 0) > ((base && base.rev) || 0)) { published = j; return; } // 아직 게시하지 않은 내 수정이 있으면 건드리지 않는다
       if ($('#modal').style.display === 'flex' || ui.b.running || (document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName))) return;
@@ -1002,12 +1021,13 @@ if (typeof module !== 'undefined') module.exports = Core;
   /* ── 그리기 ── */
   function render() {
     const v = ui.view, lv = level(), tabs = VIEWS.filter(x => x[2] <= lv && (x[0] !== 'rooms' || ui.admin || Object.keys(C.roomUse(data)).length));
-    $('#top').innerHTML = `<div class="bar"><div class="brand">${esc(data.name || school().name + ' 시간표')}${local ? '<small>이 기기에서 수정 중</small>' : ''}</div>
+    $('#top').innerHTML = `<div class="bar"><div class="brand">${esc(data.name || school().name + ' 시간표')}${local && (!base || (data.rev || 0) > (base.rev || 0)) && !canPub() ? '<small>이 기기에서만 수정됨</small>' : ''}</div>${canPub() ? '<span id="pubstat" class="noprint"></span>' : ''}
       ${lv >= 1 ? `<select id="find" data-ch="find" aria-label="교사 찾기" class="noprint"><option value="">교사 찾기</option>${teacherOpts(ui.find)}</select>` : '<button class="btn sm noprint" data-act="tunlock">교사용</button>'}
       ${lv >= 1 && ui.sw.teacher && FREE && 'Notification' in window && Notification.permission === 'default' ? '<button class="btn sm noprint" data-act="notify">변동 알림 켜기</button>' : ''}
       ${ui.admin ? '<button class="btn sm noprint on" data-act="admin" aria-pressed="true">관리 모드 끄기</button>' : ''}</div>
       <nav class="tabs" aria-label="메뉴">${tabs.map(([k, l, a]) => `<a href="#${k}"${k === v ? ' aria-current="page"' : ''}${a === 2 ? ' class="adm"' : ''}>${l}</a>`).join('')}</nav>`;
-    $('#main').innerHTML = ({ daily: vDaily, class: vClass, teacher: vTeacher, all: vAll, hours: vHours, stats: vStats, rooms: vRooms, exam: vExam, meal: vMeal, swap: vSwap, build: vBuild, data: vData }[v] || vDaily)() + (ui.admin ? '' : '<footer class="foot noprint"><button class="linkbtn" data-act="admin">시간표 수정</button></footer>');
+    $('#main').innerHTML = ({ daily: vDaily, class: vClass, teacher: vTeacher, all: vAll, hours: vHours, stats: vStats, rooms: vRooms, exam: vExam, meal: vMeal, swap: vSwap, build: vBuild, data: vData }[v] || vDaily)() + `<footer class="foot noprint">${ui.admin ? '' : '<button class="linkbtn" data-act="admin">시간표 수정</button>'}<span class="ver">버전 ${VERSION}</span></footer>`;
+    paintPub();
     // 화면에 필요한 기간의 학사일정·급식을 나이스에서 채운다
     const mon = C.mondayOf(ui.date), fri = C.addDays(mon, 4);
     if (v === 'swap') { const m = C.mondayOf(ui.sw.date || ui.date); need('c', C.addDays(m, -7 * ui.sw.range), C.addDays(m, 4 + 7 * ui.sw.range)); }
@@ -1057,7 +1077,7 @@ if (typeof module !== 'undefined') module.exports = Core;
       toast('잠그는 중…'); const lock = await makeLock(a, tk); mutate(() => { data.lock = lock; }, "수정 비밀번호를 정했습니다. '모두에게 게시'를 눌러야 다른 선생님이 쓸 수 있습니다."); },
     dellock: () => confirmBox('수정 비밀번호를 없앨까요? 게시한 뒤에는 토큰이 있는 사람만 수정할 수 있습니다.', () => mutate(() => { delete data.lock; }, '수정 비밀번호를 없앴습니다. 게시하면 적용됩니다.'), '없애기'),
     savetok: () => { const v = $('#ghtok').value.trim(); if (!v) return toast('토큰을 입력하세요.'); try { localStorage.setItem(TOKEN, v); render(); toast('토큰을 이 기기에 저장했습니다.'); } catch (e) { toast('이 브라우저에서는 저장할 수 없습니다.'); } },
-    publish,
+    publish: () => { clearTimeout(pubTimer); runPublish(); },
     admin: () => { if (!ui.admin && ghRepo() && !(ui.aok && hasTok())) return askTok(); ui.admin = !ui.admin; ui.pick = null; persist(); if (!ui.admin && ui.view === 'build') go('daily'); else render(); toast(ui.admin ? '관리 모드를 켰습니다. 시간표를 고칠 수 있습니다.' : '관리 모드를 껐습니다.'); },
     shift: d => { let s = C.addDays(ui.date, +d.n); if (Math.abs(+d.n) === 1) while (C.dayIdx(s) > 4) s = C.addDays(s, +d.n); ui.date = s; render(); },
     today: () => { ui.date = today(); render(); },
@@ -1088,7 +1108,7 @@ if (typeof module !== 'undefined') module.exports = Core;
     reqreset: () => mutate(() => { data.req = null; }, '현재 시간표 기준으로 되돌렸습니다.'),
     brun: runSolver, bshow: () => { ui.b.show = !ui.b.show; render(); }, bdrop: () => { ui.b.res = null; render(); },
     bapply: () => confirmBox('기본 시간표를 이 결과로 바꿀까요? 데이터 메뉴에서 되돌릴 수 있습니다.', () => { const r = ui.b.res; ui.b.res = null; mutate(() => { data.base = r.base; data.req = null; data.cfg.subj = C.deriveSubjCfg(data, data.cfg.subj); resnap(); }, '새 시간표를 적용했습니다.'); go('all'); }, '적용'),
-    undo: () => { const s = ui.undo.pop(); if (!s) return; data = JSON.parse(s); data.rev = Date.now(); local = true; _st = null; persist(); render(); toast('되돌렸습니다.'); },
+    undo: () => { const s = ui.undo.pop(); if (!s) return; data = JSON.parse(s); data.rev = Date.now(); local = true; _st = null; persist(); render(); toast('되돌렸습니다.'); autoPublish(); },
     revert: () => confirmBox('이 기기에서 고친 내용을 모두 버리고 게시된 시간표로 돌아갈까요?', () => { ui.undo.push(JSON.stringify(data)); data = published; local = false; _st = null; persist(); render(); toast('게시된 시간표로 돌아왔습니다.'); }, '되돌리기'),
     importpaste: () => { const txt = $('#paste').value.trim(); if (!txt) return toast('붙여넣은 내용이 없습니다.');
       try { if (txt[0] === '{') { const nd = JSON.parse(txt); if (!nd.base || !nd.classes) throw new Error('data.json 형식이 아닙니다.'); mutate(() => { data = nd; }, '백업 내용을 불러왔습니다.'); } else importData(C.buildData([{ name: '붙여넣기', rows: C.parseTsv(txt) }])); } catch (e) { toast(e.message); } },
@@ -1123,7 +1143,10 @@ if (typeof module !== 'undefined') module.exports = Core;
       const l = document.createElement('link'); l.rel = 'manifest'; l.href = 'manifest.webmanifest'; document.head.appendChild(l);
       if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
     }
-    loadLocal(); loadNeis(); route();
+    loadLocal(); loadNeis();
+    // 게시하지 않은 수정이 이 기기에 남아 있으면: 수정 권한이 있으면 바로 합쳐서 게시하고, 없으면 버리고 게시된 시간표를 보여 준다
+    if (local && ghRepo()) { if (canPub()) autoPublish(); else { data = published; local = false; base = null; persist(); } }
+    route();
     if (FREE && location.protocol.startsWith('http')) setInterval(refresh, 60000);
   })();
   window.__tt = { ui, get data() { return data; } };
